@@ -169,7 +169,7 @@ const ProfileView = ({ userType }) => (
 const Navbar = ({ isLoggedIn, onLoginClick, onSignUpClick, onLogout, activeUserType }) => (
   <nav className="flex justify-between items-center px-6 md:px-8 py-5 bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-indigo-100 transition-all">
     <div className="text-2xl font-extrabold tracking-tight flex items-center gap-2 cursor-pointer bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 bg-clip-text text-transparent" onClick={() => window.location.reload()}>
-      <ShieldCheck className="text-blue-600" fill="currentColor" fillOpacity={0.2} /> E-Government
+       E-Government
     </div>
     <div className="flex gap-4">
       {!isLoggedIn ? (
