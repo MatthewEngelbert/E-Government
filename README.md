@@ -10,3 +10,5 @@ Client
 Server:
 1. cd server
 2. npm start
+
+.
