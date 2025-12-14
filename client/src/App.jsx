@@ -4,8 +4,17 @@ import {
   CheckCircle, Loader2, ArrowRight, Search, Plus, UserCircle, Key, Activity,
   Globe, Zap, UploadCloud, FileCheck, XCircle, Clock, X, Users
 } from 'lucide-react';
+import { getContract } from "./utils/contract";
+import { ethers } from "ethers";
+
+import CONTRACT_ABI from "./contracts/DigitalDocumentRegistryABI.json";
+
+const CONTRACT_ADDRESS =
+  "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
 
 const API_URL = 'http://localhost:5000/api';
+
+console.log("ABI loaded:", CONTRACT_ABI.length); // Testing, remove nanti
 
 // --- 1. COMPONENTS (VIEWS & SECTIONS) ---
 
@@ -160,7 +169,13 @@ const MyDocumentsView = ({ documents, onUpload, loading }) => {
                   className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
                 />
              </div>
-             <button disabled={loading} className="px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 disabled:bg-slate-300 transition w-full md:w-auto min-w-[120px] flex justify-center">
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.png,.txt"
+                  onChange={(e) => setFile(e.target.files[0])}
+                  className="border px-4 py-2 rounded-lg"
+                />             
+             <button disabled={loading}  onClick={submitDocument} className="px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 disabled:bg-slate-300 transition w-full md:w-auto min-w-[120px] flex justify-center">
                {loading ? <Loader2 className="animate-spin" size={20}/> : 'Submit Request'}
              </button>
           </form>
@@ -192,6 +207,52 @@ const MyDocumentsView = ({ documents, onUpload, loading }) => {
       </div>
     </div>
   );
+};
+
+const submitDocument = async () => {
+  const cid = await uploadToIPFS();
+
+  if (!window.ethereum) {
+    alert("MetaMask not installed");
+    return;
+  }
+
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+
+  const contract = new ethers.Contract(
+    CONTRACT_ADDRESS,
+    contractABI,
+    signer
+  );
+
+  const tx = await contract.uploadDocument(
+    "Judul Dokumen",
+    cid,
+    new Date().toISOString().split("T")[0]
+  );
+
+  await tx.wait();
+  alert("Document uploaded to blockchain!");
+};
+
+const uploadToIPFS = async () => {
+  if (!file) return alert("No file selected");
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
+    method: "POST",
+    headers: {
+      pinata_api_key: "b99421d4f149de72f26e",
+      pinata_secret_api_key: "4ff3c923cc120651098296df1508943a25faa0a97850f6ff7cb5ce4bcb1c838f",
+    },
+    body: formData,
+  });
+
+  const data = await res.json();
+  return data.IpfsHash; 
 };
 
 // --- Wallet View (Integrated) ---
@@ -623,22 +684,44 @@ const Dashboard = ({ user, documents, fetchDocs, onLogout }) => {
   const [loading, setLoading] = useState(false);
 
   // --- ACTIONS ---
-  const handleRequestDoc = async (data) => {
-    setLoading(true);
-    const token = localStorage.getItem('token');
-    try {
-        await fetch(`${API_URL}/documents/request`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(data)
-        });
-        await fetchDocs(); // Refresh
-        setActiveMenu('documents');
-    } catch(err) {
-        console.error(err);
-    }
-    setLoading(false);
-  };
+const handleRequestDoc = async (data) => {
+  setLoading(true);
+  const token = localStorage.getItem("token");
+
+  try {
+    const contract = await getContract();
+
+    const tx = await contract.uploadDocument(
+      data.title,
+      "TEMP_HASH",
+      new Date().toISOString().slice(0, 10)
+    );
+
+    await tx.wait(); // cukup tunggu sukses
+
+    // SIMPAN KE DATABASE (tanpa documentId dulu)
+    await fetch(`${API_URL}/documents/request`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        title: data.title,
+        type: data.type,
+        txHash: tx.hash,
+      }),
+    });
+
+    await fetchDocs();
+    setActiveMenu("documents");
+  } catch (err) {
+    console.error("Blockchain error:", err);
+    alert("Transaction failed");
+  }
+
+  setLoading(false);
+};
 
   const handleIssueDoc = async (data) => {
     setLoading(true);
@@ -658,18 +741,39 @@ const Dashboard = ({ user, documents, fetchDocs, onLogout }) => {
   };
 
   const handleVerifyDoc = async (id, status) => {
-    const token = localStorage.getItem('token');
-    try {
-        await fetch(`${API_URL}/documents/${id}/verify`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ status })
-        });
-        await fetchDocs(); // Refresh
-    } catch(err) {
-        console.error(err);
+  const token = localStorage.getItem('token');
+
+  try {
+    const contract = await getContract();
+
+    let tx;
+    if (status === 'verified') {
+      tx = await contract.verifyDocument(id);
+    } else {
+      tx = await contract.rejectDocument(id);
     }
-  };
+
+    await tx.wait();
+
+    // Update database
+    await fetch(`${API_URL}/documents/${id}/verify`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        status,
+        txHash: tx.hash
+      })
+    });
+
+    await fetchDocs();
+  } catch (err) {
+    console.error(err);
+    alert("Verification failed");
+  }
+};
 
   const renderContent = () => {
     switch (activeMenu) {

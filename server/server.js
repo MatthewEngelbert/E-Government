@@ -5,6 +5,9 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
+require("dotenv").config();
+
+
 // --- KONFIGURASI ---
 const app = express();
 const PORT = 5000;
@@ -42,10 +45,23 @@ const User = mongoose.model('User', userSchema);
 const documentSchema = new mongoose.Schema({
   title: { type: String, required: true },
   type: { type: String, required: true },
-  hash: { type: String, required: true, unique: true },
+
+  // === BLOCKCHAIN DATA ===
+  blockchainId: { type: Number },          // id dari smart contract
+  txHash: { type: String },                // hash transaksi
+  contractAddress: { type: String },       // address contract
+
+  ipfsCid: { type: String },               // optional (nanti)
+  
   ownerName: { type: String, required: true },
   ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+
+  status: {
+    type: String,
+    enum: ['pending', 'verified', 'rejected'],
+    default: 'pending'
+  },
+
   createdAt: { type: Date, default: Date.now }
 });
 const Document = mongoose.model('Document', documentSchema);
@@ -125,14 +141,33 @@ app.get('/api/documents', authenticate, async (req, res) => {
 });
 
 app.post('/api/documents/request', authenticate, async (req, res) => {
-  if (req.user.role !== 'citizen') return res.status(403).json({ message: 'Forbidden' });
+  if (req.user.role !== 'citizen')
+    return res.status(403).json({ message: 'Forbidden' });
+
   try {
-    const { title, type } = req.body;
-    const hash = '0x' + crypto.createHash('sha256').update(title + req.user.id + Date.now()).digest('hex');
-    const newDoc = new Document({ title, type, hash, ownerName: req.user.name, ownerId: req.user.id, status: 'pending' });
+    const { title, type, blockchainId, txHash } = req.body;
+
+    const newDoc = new Document({
+      title,
+      type,
+      blockchainId,
+      txHash,
+      contractAddress: process.env.CONTRACT_ADDRESS,
+      ownerName: req.user.name,
+      ownerId: req.user.id,
+      status: 'pending'
+    });
+
     await newDoc.save();
-    res.status(201).json({ message: 'Success', doc: newDoc });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+
+    res.status(201).json({
+      message: 'Success',
+      doc: newDoc
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.patch('/api/documents/:id/verify', authenticate, async (req, res) => {
