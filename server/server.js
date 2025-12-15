@@ -4,6 +4,8 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const multer = require('multer');
+
 
 require("dotenv").config();
 
@@ -17,6 +19,9 @@ const JWT_SECRET = 'kunci_rahasia_negara_sangat_aman_123';
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json());
+
+// Multer (memory storage) for handling file uploads
+const upload = multer({ storage: multer.memoryStorage() });
 
 // --- KONEKSI DATABASE ---
 // Kita tambahkan opsi agar koneksi lebih stabil
@@ -134,38 +139,90 @@ app.get('/api/documents', authenticate, async (req, res) => {
   try {
     let docs = req.user.role === 'citizen' ? await Document.find({ ownerId: req.user.id }) : await Document.find();
     res.json(docs.map(doc => ({
-      id: doc._id, title: doc.title, type: doc.type, hash: doc.hash, status: doc.status,
-      date: doc.createdAt.toISOString().split('T')[0], owner: doc.ownerName
+      id: doc._id,
+      title: doc.title,
+      type: doc.type,
+      hash: doc.ipfsCid || doc.txHash || (doc._id && doc._id.toString()),
+      status: doc.status,
+      date: doc.createdAt.toISOString().split('T')[0],
+      owner: doc.ownerName
     })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/documents/request', authenticate, async (req, res) => {
-  if (req.user.role !== 'citizen')
-    return res.status(403).json({ message: 'Forbidden' });
+app.post(
+  "/api/documents/request",
+  authenticate,
+  upload.single("file"), // ⬅️ INI PENTING
+  async (req, res) => {
 
+    if (req.user.role !== "citizen") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    try {
+      const { title, type } = req.body;
+
+      if (!req.file) {
+        return res.status(400).json({ message: "File tidak ditemukan" });
+      }
+
+      // 1️⃣ Upload file ke IPFS
+      const ipfsCid = await uploadToIPFS(
+        req.file.buffer,
+        req.file.originalname
+      );
+
+      // 2️⃣ Simpan metadata ke MongoDB
+      const newDoc = new Document({
+        title,
+        type,
+        ipfsCid,
+        ownerName: req.user.name,
+        ownerId: req.user.id,
+        status: "pending",
+      });
+
+      await newDoc.save();
+
+      // 3️⃣ Return ke frontend
+      res.status(201).json({
+        id: newDoc._id,
+        title: newDoc.title,
+        type: newDoc.type,
+        ipfsCid,
+        status: newDoc.status,
+        date: newDoc.createdAt.toISOString().split("T")[0],
+      });
+
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// Institution: Issue document endpoint (creates a verified document record)
+app.post('/api/documents/issue', authenticate, async (req, res) => {
+  if (req.user.role !== 'institution') return res.status(403).json({ message: 'Forbidden' });
   try {
-    const { title, type, blockchainId, txHash } = req.body;
+    const { title, type, citizenName, ownerId, txHash, ipfsCid } = req.body;
 
     const newDoc = new Document({
       title,
       type,
-      blockchainId,
-      txHash,
-      contractAddress: process.env.CONTRACT_ADDRESS,
-      ownerName: req.user.name,
-      ownerId: req.user.id,
-      status: 'pending'
+      ipfsCid: ipfsCid || null,
+      txHash: txHash || null,
+      ownerName: citizenName || req.user.name,
+      ownerId: ownerId || undefined,
+      status: 'verified'
     });
 
     await newDoc.save();
 
-    res.status(201).json({
-      message: 'Success',
-      doc: newDoc
-    });
-
+    res.status(201).json({ message: 'Document issued', id: newDoc._id });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -177,6 +234,43 @@ app.patch('/api/documents/:id/verify', authenticate, async (req, res) => {
     res.json({ message: 'Updated', doc });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+async function uploadToIPFS(buffer, filename) {
+  try {
+    // Node 18+ provides global `FormData` and `fetch` — create a Blob from the buffer
+    const form = new FormData();
+    const blob = new Blob([buffer]);
+    form.append('file', blob, filename);
+
+    const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+      method: 'POST',
+      headers: {
+        pinata_api_key: process.env.PINATA_API_KEY,
+        pinata_secret_api_key: process.env.PINATA_SECRET_API_KEY,
+      },
+      body: form,
+    });
+
+    const json = await res.json();
+    return json.IpfsHash;
+  } catch (err) {
+    console.error('IPFS upload failed', err);
+    throw err;
+  }
+}
+
+// Public verification endpoint used by frontend
+app.get('/api/verify/:hash', async (req, res) => {
+  try {
+    const h = req.params.hash;
+    const doc = await Document.findOne({ $or: [{ _id: h }, { ipfsCid: h }, { txHash: h }] });
+    if (!doc) return res.json({ valid: false });
+    res.json({ valid: true, type: doc.type, owner: doc.ownerName, date: doc.createdAt.toISOString().split('T')[0] });
+  } catch (err) {
+    res.status(500).json({ valid: false });
+  }
+});
+
 
 // --- JALANKAN SERVER ---
 app.listen(PORT, () => console.log(`🚀 Server berjalan di http://localhost:${PORT}`));
