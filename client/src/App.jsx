@@ -7,6 +7,9 @@ import {
 import { getContract } from "./utils/contract";
 import { ethers } from "ethers";
 
+
+
+
 import CONTRACT_ABI from "./contracts/DigitalDocumentRegistryABI.json";
 
 const CONTRACT_ADDRESS =
@@ -120,6 +123,7 @@ const IssueDocumentView = ({ onSubmit, loading }) => {
 const MyDocumentsView = ({ documents, onUpload, loading }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [formData, setFormData] = useState({ title: '', type: 'Surat Keterangan' });
+  const [file, setFile] = useState(null);
 
   const handleUploadSubmit = (e) => {
     e.preventDefault();
@@ -211,29 +215,21 @@ const MyDocumentsView = ({ documents, onUpload, loading }) => {
 
 const submitDocument = async () => {
   const cid = await uploadToIPFS();
+  if (!cid) return;
 
-  if (!window.ethereum) {
-    alert("MetaMask not installed");
-    return;
+  try {
+    const contract = await getContract();
+    const tx = await contract.uploadDocument(
+      "Judul Dokumen",
+      cid,
+      new Date().toISOString().split("T")[0]
+    );
+    await tx.wait();
+    alert("Document uploaded to blockchain!");
+  } catch (err) {
+    console.error(err);
+    alert("Transaction failed");
   }
-
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  const signer = await provider.getSigner();
-
-  const contract = new ethers.Contract(
-    CONTRACT_ADDRESS,
-    contractABI,
-    signer
-  );
-
-  const tx = await contract.uploadDocument(
-    "Judul Dokumen",
-    cid,
-    new Date().toISOString().split("T")[0]
-  );
-
-  await tx.wait();
-  alert("Document uploaded to blockchain!");
 };
 
 const uploadToIPFS = async () => {
