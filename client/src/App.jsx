@@ -52,62 +52,6 @@ const DashboardHome = ({ user, documents }) => {
   );
 };
 
-// --- Issue Document View (Institution - Integrated) ---
-const IssueDocumentView = ({ onSubmit, loading }) => {
-  const [formData, setFormData] = useState({ title: '', type: 'KTP', citizenName: '' });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSubmit(formData);
-    setFormData({ title: '', type: 'KTP', citizenName: '' }); // Reset form
-  };
-
-  return (
-    <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 animate-fadeIn">
-      <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Plus className="text-blue-600"/> Issue New Document</h2>
-      <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
-        <div className="grid grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-bold text-slate-600 mb-2">Document Type</label>
-            <select 
-              value={formData.type}
-              onChange={(e) => setFormData({...formData, type: e.target.value})}
-              className="w-full px-5 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50"
-            >
-              <option value="KTP">KTP (Identity Card)</option>
-              <option value="KK">KK (Family Card)</option>
-              <option value="Ijazah">Ijazah (Certificate)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-slate-600 mb-2">Document Title</label>
-            <input 
-              value={formData.title}
-              onChange={(e) => setFormData({...formData, title: e.target.value})}
-              className="w-full px-5 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
-              placeholder="e.g. E-KTP 2025" 
-              required
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-bold text-slate-600 mb-2">Citizen Name</label>
-          <input 
-            value={formData.citizenName}
-            onChange={(e) => setFormData({...formData, citizenName: e.target.value})}
-            className="w-full px-5 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
-            placeholder="Full Name of Citizen" 
-            required
-          />
-        </div>
-        <button disabled={loading} className="px-8 py-4 bg-slate-900 text-white font-bold rounded-xl w-full flex justify-center items-center gap-2 hover:bg-slate-800 transition disabled:opacity-70">
-          {loading ? <Loader2 className="animate-spin"/> : 'Record to Blockchain'}
-        </button>
-      </form>
-    </div>
-  );
-};
-
 // --- My Documents View (Citizen - Integrated) ---
 const MyDocumentsView = ({ documents, onUpload, loading }) => {
   const [isUploading, setIsUploading] = useState(false);
@@ -655,7 +599,6 @@ const Sidebar = ({ user, activeMenu, onMenuClick, notificationCount }) => {
   ];
   const institutionMenus = [
     { id: 'dashboard', label: 'Dashboard', icon: Building2 },
-    { id: 'issue', label: 'Issue Document', icon: Plus },
     { id: 'verify', label: 'Verification Services', icon: Search, badge: notificationCount },
     { id: 'history', label: 'Issuance History', icon: History },
     { id: 'profile', label: 'Institution Profile', icon: User },
@@ -804,23 +747,6 @@ const Dashboard = ({ user, documents, fetchDocs, onLogout }) => {
     }
   };
 
-  const handleIssueDoc = async (data) => {
-    setLoading(true);
-    const token = localStorage.getItem('token');
-    try {
-        await fetch(`${API_URL}/documents/issue`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(data)
-        });
-        await fetchDocs(); // Refresh
-        setActiveMenu('dashboard');
-    } catch(err) {
-        console.error(err);
-    }
-    setLoading(false);
-  };
-
   const handleVerifyDoc = async (id, status) => {
     const token = localStorage.getItem('token');
     try {
@@ -838,7 +764,6 @@ const Dashboard = ({ user, documents, fetchDocs, onLogout }) => {
   const renderContent = () => {
     switch (activeMenu) {
       case 'dashboard': return <DashboardHome user={user} documents={documents} />;
-      case 'issue': return <IssueDocumentView onSubmit={handleIssueDoc} loading={loading} />;
       case 'documents': return <MyDocumentsView documents={documents} onUpload={handleRequestDoc} loading={loading} />;
       case 'wallet': return <WalletView wallet={user.wallet} />;
       case 'verify': return <VerificationView documents={documents} onVerifyAction={handleVerifyDoc} />;
