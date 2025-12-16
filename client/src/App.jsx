@@ -5,19 +5,8 @@ import {
   Globe, Zap, UploadCloud, FileCheck, XCircle, Clock, X, Users
 } from 'lucide-react';
 import { getContract } from "./utils/contract";
-import { ethers } from "ethers";
-
-
-
-
-import CONTRACT_ABI from "./contracts/DigitalDocumentRegistryABI.json";
-
-const CONTRACT_ADDRESS =
-  "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
 
 const API_URL = 'http://localhost:5000/api';
-
-console.log("ABI loaded:", CONTRACT_ABI.length); // Testing, remove nanti
 
 // --- 1. COMPONENTS (VIEWS & SECTIONS) ---
 
@@ -124,12 +113,54 @@ const MyDocumentsView = ({ documents, onUpload, loading }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [formData, setFormData] = useState({ title: '', type: 'Surat Keterangan' });
   const [file, setFile] = useState(null);
-
+  const [previewDoc, setPreviewDoc] = useState(null);
+  const token = localStorage.getItem('token');
   const handleUploadSubmit = (e) => {
+
     e.preventDefault();
-    onUpload(formData);
+
+    if (!file) {
+      alert('Please select a file');
+      return;
+    }
+
+    const formDataPayload = new FormData();
+    formDataPayload.append('title', formData.title);
+    formDataPayload.append('type', formData.type);
+    formDataPayload.append('file', file);
+
+    onUpload(formDataPayload);
     setIsUploading(false);
-    setFormData({ title: '', type: 'Surat Keterangan' });
+  };
+
+  const handleDownload = async (docId) => { // Download
+    const token = localStorage.getItem('token');
+
+    const res = await fetch( 
+      `http://localhost:5000/api/documents/${docId}/download`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    if (!res.ok) {
+      alert('Failed to download file');
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'document';
+    document.body.appendChild(a);
+    a.click();
+
+    a.remove();
+    window.URL.revokeObjectURL(url);
   };
 
   return (
@@ -173,18 +204,18 @@ const MyDocumentsView = ({ documents, onUpload, loading }) => {
                   className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
                 />
              </div>
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.png,.txt"
-                  onChange={(e) => setFile(e.target.files[0])}
-                  className="border px-4 py-2 rounded-lg"
-                />             
-             <button disabled={loading}  onClick={submitDocument} className="px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 disabled:bg-slate-300 transition w-full md:w-auto min-w-[120px] flex justify-center">
+             <input
+              type="file"
+              onChange={(e) => setFile(e.target.files[0])}
+              required
+            />
+             <button disabled={loading} className="px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 disabled:bg-slate-300 transition w-full md:w-auto min-w-[120px] flex justify-center">
                {loading ? <Loader2 className="animate-spin" size={20}/> : 'Submit Request'}
              </button>
           </form>
         </div>
       )}
+      
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {documents.map((doc) => (
@@ -199,56 +230,41 @@ const MyDocumentsView = ({ documents, onUpload, loading }) => {
             <h3 className="font-bold text-lg text-slate-800 mb-1">{doc.title}</h3>
             <p className="text-xs text-slate-400 font-mono mb-2 truncate" title={doc.hash}>{doc.hash}</p>
             <p className="text-xs text-slate-500 mb-6">Date: {doc.date}</p>
-            
-            <button className="w-full py-2 bg-slate-50 text-slate-600 font-bold text-sm rounded-xl group-hover:bg-blue-600 group-hover:text-white transition">View Details</button>
+            <button
+              onClick={() => setPreviewDoc(doc)}
+              className="w-full py-2 bg-slate-50 text-slate-600 font-bold text-sm rounded-xl hover:bg-indigo-600 hover:text-white transition"
+             >Preview Document</button>
+            <button onClick={() => handleDownload(doc.id)} className="w-full py-2 bg-slate-50 text-slate-600 font-bold text-sm rounded-xl group-hover:bg-blue-600 group-hover:text-white transition">View Details</button>
           </div>
+          
         ))}
         {documents.length === 0 && (
           <div className="col-span-3 text-center py-10 text-slate-400 font-medium">
              No documents found.
-          </div>
+          </div>  
         )}
       </div>
-    </div>
+        {previewDoc && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[999]">
+          <div className="bg-white rounded-2xl w-[90%] max-w-4xl h-[80vh] relative overflow-hidden">
+            
+            <button
+              onClick={() => setPreviewDoc(null)}
+              className="absolute top-4 right-4 bg-slate-100 rounded-full p-2 hover:bg-slate-200"
+            >
+              ✕
+            </button>
+
+            <iframe
+              key={previewDoc.id}
+              src={`http://localhost:5000/api/documents/${previewDoc.id}/preview?token=${token}&t=${Date.now()}`}
+              className="w-full h-full rounded-2xl"
+            />
+          </div>
+        </div>
+      )}
+      </div>
   );
-};
-
-const submitDocument = async () => {
-  const cid = await uploadToIPFS();
-  if (!cid) return;
-
-  try {
-    const contract = await getContract();
-    const tx = await contract.uploadDocument(
-      "Judul Dokumen",
-      cid,
-      new Date().toISOString().split("T")[0]
-    );
-    await tx.wait();
-    alert("Document uploaded to blockchain!");
-  } catch (err) {
-    console.error(err);
-    alert("Transaction failed");
-  }
-};
-
-const uploadToIPFS = async () => {
-  if (!file) return alert("No file selected");
-
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
-    method: "POST",
-    headers: {
-      pinata_api_key: "b99421d4f149de72f26e",
-      pinata_secret_api_key: "4ff3c923cc120651098296df1508943a25faa0a97850f6ff7cb5ce4bcb1c838f",
-    },
-    body: formData,
-  });
-
-  const data = await res.json();
-  return data.IpfsHash; 
 };
 
 // --- Wallet View (Integrated) ---
@@ -270,30 +286,91 @@ const WalletView = ({ wallet }) => (
 );
 
 // --- History View (Shared) ---
-const HistoryView = () => (
-  <div className="animate-fadeIn">
-    <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><History className="text-blue-600"/> Activity History</h2>
-    <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
-      {[1,2,3,4].map((item) => (
-        <div key={item} className="p-6 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500"><Activity size={18}/></div>
-            <div>
-              <p className="font-bold text-slate-800">Document Activity</p>
-              <p className="text-xs text-slate-400">2 hours ago • ID: #829102</p>
+  const HistoryView = ({ user }) => {
+    const [activities, setActivities] = useState([]);
+    const [loading, setLoading] = useState(true);
+    
+
+    useEffect(() => {
+      const fetchActivities = async () => {
+        const token = localStorage.getItem('token');
+
+        const res = await fetch('http://localhost:5000/api/activities', {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+
+        let data = await res.json();
+
+        if (user?.role === 'institution') {
+          data = data.filter(act =>
+            act.action === 'VERIFY' || act.action === 'REJECT'
+          );
+        }
+
+        setActivities(data);
+        setLoading(false);
+      };
+
+      fetchActivities();
+    }, [user]);
+
+    if (loading) {
+      return <p className="text-slate-400">Loading history...</p>;
+    }
+
+    return (
+      <div className="animate-fadeIn">
+        <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+          <History className="text-blue-600"/>
+          {user?.role === 'institution' ? 'Issuance History' : 'Activity History'}
+        </h2>
+
+        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+          {activities.length === 0 && (
+            <div className="p-6 text-center text-slate-400">
+              No history available.
             </div>
-          </div>
-          <span className="text-sm font-bold text-slate-400">-0.0001 ETH</span>
+          )}
+
+          {activities.map(act => (
+            <div
+              key={act._id}
+              className="p-6 border-b border-slate-50 flex items-center gap-4 hover:bg-slate-50 transition"
+            >
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center text-white
+                  ${act.action === 'VERIFY' ? 'bg-emerald-500' :
+                    act.action === 'REJECT' ? 'bg-red-500' :
+                    'bg-slate-400'}`}
+              >
+                {act.action === 'VERIFY' ? <CheckCircle size={18}/> :
+                act.action === 'REJECT' ? <XCircle size={18}/> :
+                <Activity size={18}/>}
+              </div>
+
+              <div className="flex-1">
+                <p className="font-bold text-slate-800">
+                  {act.action} — {act.documentTitle}
+                </p>
+                <p className="text-xs text-slate-400">
+                  {act.userName} • {new Date(act.createdAt).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
-  </div>
-);
+      </div>
+    );
+  };
 
 // --- Verification View (Institution - Integrated) ---
 const VerificationView = ({ documents, onVerifyAction }) => {
   const pendingDocs = documents.filter(d => d.status === 'pending');
   const [loadingId, setLoadingId] = useState(null);
+  const [previewDoc, setPreviewDoc] = useState(null); // Preview Document
+  const token = localStorage.getItem('token');
 
   const handleAction = async (id, action) => {
     setLoadingId(id);
@@ -302,6 +379,8 @@ const VerificationView = ({ documents, onVerifyAction }) => {
   };
 
   return (
+
+    
     <div className="animate-fadeIn">
       <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Search className="text-blue-600"/> Verify Document</h2>
       
@@ -347,6 +426,12 @@ const VerificationView = ({ documents, onVerifyAction }) => {
                         <td className="p-6 text-sm text-slate-500">{doc.date}</td>
                         <td className="p-6 text-right">
                             <div className="flex justify-end gap-2">
+                              <button // Preview Button
+                                onClick={() => setPreviewDoc(doc)}
+                                className="px-3 py-2 bg-blue-700 rounded-lg text-white hover:bg-slate-200 hover:text-black font-bold"
+                              >
+                                Preview
+                              </button>
                                 <button 
                                     onClick={() => handleAction(doc.id, 'rejected')}
                                     disabled={loadingId === doc.id}
@@ -371,6 +456,27 @@ const VerificationView = ({ documents, onVerifyAction }) => {
             </div>
         )}
       </div>
+          {previewDoc && (
+      <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center">
+        <div className="bg-white w-[90%] max-w-5xl h-[80vh] rounded-2xl relative overflow-hidden shadow-2xl">
+
+          <button
+            onClick={() => setPreviewDoc(null)}
+            className="absolute top-4 right-4 z-10 bg-slate-100 rounded-full p-2 hover:bg-slate-200"
+          >
+            ✕
+          </button>
+
+
+
+          <iframe
+            key={previewDoc.id}
+            src={`http://localhost:5000/api/documents/${previewDoc.id}/preview?token=${token}&t=${Date.now()}`}
+            className="w-full h-full rounded-2xl"
+          />
+        </div>
+      </div>
+    )}
     </div>
   );
 };
@@ -680,44 +786,23 @@ const Dashboard = ({ user, documents, fetchDocs, onLogout }) => {
   const [loading, setLoading] = useState(false);
 
   // --- ACTIONS ---
-const handleRequestDoc = async (data) => {
-  setLoading(true);
-  const token = localStorage.getItem("token");
+  const handleRequestDoc = async (formData) => {
+    const token = localStorage.getItem('token');
 
-  try {
-    const contract = await getContract();
-
-    const tx = await contract.uploadDocument(
-      data.title,
-      "TEMP_HASH",
-      new Date().toISOString().slice(0, 10)
-    );
-
-    await tx.wait(); // cukup tunggu sukses
-
-    // SIMPAN KE DATABASE (tanpa documentId dulu)
-    await fetch(`${API_URL}/documents/request`, {
-      method: "POST",
+    const res = await fetch(`${API_URL}/documents/request`, {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${token}`
       },
-      body: JSON.stringify({
-        title: data.title,
-        type: data.type,
-        txHash: tx.hash,
-      }),
+      body: formData
     });
 
-    await fetchDocs();
-    setActiveMenu("documents");
-  } catch (err) {
-    console.error("Blockchain error:", err);
-    alert("Transaction failed");
-  }
-
-  setLoading(false);
-};
+    if (!res.ok) {
+      const err = await res.json();
+      console.error(err);
+      alert(err.message || 'Upload failed');
+    }
+  };
 
   const handleIssueDoc = async (data) => {
     setLoading(true);
@@ -737,39 +822,18 @@ const handleRequestDoc = async (data) => {
   };
 
   const handleVerifyDoc = async (id, status) => {
-  const token = localStorage.getItem('token');
-
-  try {
-    const contract = await getContract();
-
-    let tx;
-    if (status === 'verified') {
-      tx = await contract.verifyDocument(id);
-    } else {
-      tx = await contract.rejectDocument(id);
+    const token = localStorage.getItem('token');
+    try {
+        await fetch(`${API_URL}/documents/${id}/verify`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ status })
+        });
+        await fetchDocs(); // Refresh
+    } catch(err) {
+        console.error(err);
     }
-
-    await tx.wait();
-
-    // Update database
-    await fetch(`${API_URL}/documents/${id}/verify`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        status,
-        txHash: tx.hash
-      })
-    });
-
-    await fetchDocs();
-  } catch (err) {
-    console.error(err);
-    alert("Verification failed");
-  }
-};
+  };
 
   const renderContent = () => {
     switch (activeMenu) {
@@ -778,7 +842,7 @@ const handleRequestDoc = async (data) => {
       case 'documents': return <MyDocumentsView documents={documents} onUpload={handleRequestDoc} loading={loading} />;
       case 'wallet': return <WalletView wallet={user.wallet} />;
       case 'verify': return <VerificationView documents={documents} onVerifyAction={handleVerifyDoc} />;
-      case 'history': return <HistoryView />;
+      case 'history': return <HistoryView user={user} />;
       case 'profile': return <ProfileView user={user} onLogout={onLogout} />;
       default: return <DashboardHome user={user} documents={documents} />;
     }
