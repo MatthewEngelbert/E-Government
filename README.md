@@ -26,3 +26,4 @@ SERVER
 
 Miscellanous Compiling Smart Contract
 1. npx hardhat run scripts/deploy.js --network localhost
+..
