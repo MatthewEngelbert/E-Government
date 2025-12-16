@@ -1,14 +1,29 @@
-How to Run :
-Blockchain
-1. npm install --save-dev hardhat
-2. npx hardhat node
+How to Run : INSTALL ALL DEPENDENCIES
 
-Client
-1. cd client
-2. npm run dev
+BLOCKCHAIN
 
-Server:
-1. cd server
-2. npm start
+cd client/blockchain
+npm install --save-dev hardhat
+CLIENT
 
-.
+cd client
+npm install
+SERVER
+
+cd server
+npm install busboy
+RUN BLOCKCHAIN
+
+cd client/blockchain
+npx hardhat node
+CLIENT
+
+cd client
+npm run dev
+SERVER
+
+cd server
+npm run dev
+Miscellanous Compiling Smart Contract
+
+npx hardhat run scripts/deploy.js --network localhost
