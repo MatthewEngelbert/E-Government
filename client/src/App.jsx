@@ -5,6 +5,7 @@ import {
   Globe, Zap, UploadCloud, FileCheck, XCircle, Clock, X, Users
 } from 'lucide-react';
 import { getContract } from "./utils/contract";
+import { ethers } from 'ethers';
 
 const API_URL = 'http://localhost:5000/api';
 
@@ -316,10 +317,26 @@ const VerificationView = ({ documents, onVerifyAction }) => {
   const [previewDoc, setPreviewDoc] = useState(null); // Preview Document
   const token = localStorage.getItem('token');
 
-  const handleAction = async (id, action) => {
-    setLoadingId(id);
-    await onVerifyAction(id, action);
-    setLoadingId(null);
+  const handleAction = async (docId, action) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/documents/${docId}/verify`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status: action })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || 'Verification failed');
+      }
+
+      await onVerifyAction(docId, action);
+      alert('Status berhasil diupdate');
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Gagal verifikasi');
+    }
   };
 
   return (
@@ -730,26 +747,67 @@ const Dashboard = ({ user, documents, fetchDocs, onLogout }) => {
 
   // --- ACTIONS ---
   const handleRequestDoc = async (formData) => {
-    const token = localStorage.getItem('token');
-
-    const res = await fetch(`${API_URL}/documents/request`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`
-      },
-      body: formData
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      console.error(err);
-      alert(err.message || 'Upload failed');
-    }
-  };
-
-  const handleVerifyDoc = async (id, status) => {
-    const token = localStorage.getItem('token');
     try {
+      // 1) Prepare metadata
+      const title = formData.get('title');
+      const date = new Date().toISOString();
+      const tempHash = ethers.keccak256(ethers.toUtf8Bytes(title + Date.now()));
+
+      // 2) Ask user to sign via Metamask (client-side tx)
+      const contract = await getContract();
+      const tx = await contract.uploadDocument(title, tempHash, date);
+      const receipt = await tx.wait();
+
+      // 3) Parse DocumentUploaded event from logs
+      let chainId = null;
+      for (const log of receipt.logs) {
+        try {
+          const parsed = contract.interface.parseLog(log);
+          if (parsed.name === 'DocumentUploaded') {
+            chainId = parsed.args.id?.toString();
+            break;
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      const txHash = receipt.transactionHash || tx.hash;
+
+      if (!chainId) {
+        console.warn('No DocumentUploaded event found, continuing to send to backend anyway');
+      }
+
+      // 4) Append chain info to the form data and send to backend to store file and metadata
+      formData.append('blockchainId', chainId || '');
+      formData.append('txHash', txHash);
+      formData.append('date', date);
+      formData.append('tempHash', tempHash);
+
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/documents/request`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || 'Upload failed');
+      }
+
+      alert('Dokumen berhasil dikirim dan ditandatangani di wallet');
+      await fetchDocs();
+    } catch (err) {
+      console.error(err);
+      if (err.message && err.message.toLowerCase().includes('metamask')) {
+        alert('Metamask tidak ditemukan atau belum terhubung. Pastikan Metamask terinstall dan terhubung ke jaringan yang benar.');
+      } else {
+        alert(err.message || 'Gagal upload dokumen');
+      }
+    }
+  }; 
+  const handleVerifyDoc = async (id, status) => {
+    try {
+        const token = localStorage.getItem('token');
         await fetch(`${API_URL}/documents/${id}/verify`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },

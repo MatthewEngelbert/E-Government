@@ -6,11 +6,19 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const mime = require('mime-types');
 
+require('dotenv').config();
+const { ethers } = require('ethers');
+const contractAbi = require('./abi/DigitalDocumentRegistry.json');
+
 // --- KONFIGURASI ---
 const app = express();
-const PORT = 5000;
-const MONGO_URI = 'mongodb://127.0.0.1:27017/egov_db'; 
-const JWT_SECRET = 'kunci_rahasia_negara_sangat_aman_123'; 
+const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/egov_db'; 
+const JWT_SECRET = process.env.JWT_SECRET || 'kunci_rahasia_negara_sangat_aman_123'; 
+
+const PROVIDER_URL = process.env.PROVIDER_URL || 'http://127.0.0.1:8545';
+const SERVER_PRIVATE_KEY = process.env.SERVER_PRIVATE_KEY || '';
+const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 
 // --- MIDDLEWARE ---
 app.use(cors());
@@ -32,11 +40,29 @@ mongoose.connect(MONGO_URI)
   const { GridFSBucket } = require('mongodb');
 
   let gridFSBucket;
+  let blockchainProvider = null;
+  let blockchainWallet = null;
+  let blockchainContract = null;
 
   mongoose.connection.once('open', () => {
     gridFSBucket = new GridFSBucket(mongoose.connection.db, {
       bucketName: 'documents'
     });
+
+    try {
+      blockchainProvider = new ethers.JsonRpcProvider(PROVIDER_URL);
+
+      if (SERVER_PRIVATE_KEY) {
+        blockchainWallet = new ethers.Wallet(SERVER_PRIVATE_KEY, blockchainProvider);
+        blockchainContract = new ethers.Contract(CONTRACT_ADDRESS, contractAbi, blockchainWallet);
+        console.log('✅ Blockchain contract connected:', CONTRACT_ADDRESS);
+      } else {
+        blockchainContract = new ethers.Contract(CONTRACT_ADDRESS, contractAbi, blockchainProvider); // read-only
+        console.warn('⚠️ SERVER_PRIVATE_KEY not set - server will not sign transactions.');
+      }
+    } catch (err) {
+      console.error('Blockchain init error:', err);
+    }
   });
 
 // --- MODEL DATABASE ---
@@ -60,6 +86,12 @@ const documentSchema = new mongoose.Schema({
 
   fileId: { type: mongoose.Schema.Types.ObjectId },
   originalFileName: String,
+
+  // On-chain mapping
+  blockchainId: { type: Number },
+  txHash: { type: String },
+  tempHash: { type: String },
+  blockchainDate: { type: String },
 
   createdAt: { type: Date, default: Date.now }
 });
@@ -209,10 +241,18 @@ app.get('/api/documents/:id/download', authenticate, async (req, res) => {
     let originalFileName;
     let title;
     let type;
+    let blockchainId = null;
+    let txHash = null;
+    let txDate = null;
+    let tempHash = null;
 
     busboy.on('field', (fieldname, value) => {
       if (fieldname === 'title') title = value;
       if (fieldname === 'type') type = value;
+      if (fieldname === 'blockchainId') blockchainId = value;
+      if (fieldname === 'txHash') txHash = value;
+      if (fieldname === 'date') txDate = value;
+      if (fieldname === 'tempHash') tempHash = value;
     });
 
     busboy.on('file', (fieldname, file, info) => {
@@ -244,7 +284,12 @@ app.get('/api/documents/:id/download', authenticate, async (req, res) => {
         ownerId: req.user.id,
         status: 'pending',
         fileId,
-        originalFileName
+        originalFileName,
+        // store client-provided chain info when available
+        blockchainId: blockchainId ? Number(blockchainId) : undefined,
+        txHash: txHash || undefined,
+        tempHash: tempHash || undefined,
+        blockchainDate: txDate || undefined
       });
 
       await Activity.create({
@@ -256,6 +301,40 @@ app.get('/api/documents/:id/download', authenticate, async (req, res) => {
         documentTitle: newDoc.title,
         ipAddress: req.ip
       });
+
+      // If client already provided blockchain info, skip server-side on-chain upload
+      if (newDoc.blockchainId) {
+        console.log('Client provided blockchain info; skipping server-side upload.');
+      } else if (blockchainContract && blockchainWallet) {
+        try {
+          const dateStr = new Date().toISOString();
+          const tx = await blockchainContract.uploadDocument(title, hash, dateStr);
+          const receipt = await tx.wait();
+
+          let chainId = null;
+          for (const log of receipt.logs) {
+            if (log.address && log.address.toLowerCase() === CONTRACT_ADDRESS.toLowerCase()) {
+              try {
+                const parsed = blockchainContract.interface.parseLog(log);
+                if (parsed.name === 'DocumentUploaded') {
+                  chainId = parsed.args.id?.toString();
+                  break;
+                }
+              } catch (e) { /* ignore parse errors */ }
+            }
+          }
+
+          if (chainId) {
+            newDoc.blockchainId = Number(chainId);
+            newDoc.txHash = receipt.transactionHash || tx.hash;
+            await newDoc.save();
+          }
+        } catch (err) {
+          console.error('Blockchain upload failed:', err);
+        }
+      } else {
+        console.log('Skipping blockchain upload (no wallet configured).');
+      }
 
       res.status(201).json({ message: 'Uploaded', document: newDoc });
     });
@@ -360,6 +439,23 @@ app.patch('/api/documents/:id/verify', authenticatePreview, async (req, res) => 
       documentTitle: doc.title,
       ipAddress: req.ip
     });
+
+    // Publish verify/reject on-chain if possible
+    try {
+      if (blockchainContract && doc.blockchainId) {
+        if (status === 'verified') {
+          const tx = await blockchainContract.verifyDocument(doc.blockchainId);
+          await tx.wait();
+        } else {
+          const tx = await blockchainContract.rejectDocument(doc.blockchainId);
+          await tx.wait();
+        }
+      } else {
+        console.warn('Skipping on-chain verify/reject (missing blockchainContract or blockchainId)');
+      }
+    } catch (err) {
+      console.error('Blockchain verify/reject failed:', err);
+    }
 
     res.json({ message: 'Document updated', doc });
 
