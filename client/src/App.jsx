@@ -705,12 +705,26 @@ const Hero = () => {
           <button onClick={handleVerify} disabled={loading} className="px-8 py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition flex items-center justify-center gap-2 shadow-lg hover:shadow-xl active:scale-95">{loading ? <Loader2 className="animate-spin" size={18}/> : 'Check'}</button>
         </div>
         {result && (
-          <div className={`p-5 rounded-2xl border-l-4 animate-fadeIn text-left ${result.valid ? 'bg-emerald-50 border-emerald-500 text-emerald-900' : 'bg-rose-50 border-rose-500 text-rose-900'}`}>
+          <div className={`p-5 rounded-2xl border-l-4 animate-fadeIn text-left ${result.valid && result.status === 'verified' ? 'bg-emerald-50 border-emerald-500 text-emerald-900' : result.valid && result.status === 'pending' ? 'bg-orange-50 border-orange-500 text-orange-900' : 'bg-rose-50 border-rose-500 text-rose-900'}`}>
             <div className="flex items-start gap-4">
-              <div className={`p-2 rounded-full ${result.valid ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{result.valid ? <CheckCircle size={20} /> : <X size={20} />}</div>
+              <div className={`p-2 rounded-full ${result.valid && result.status === 'verified' ? 'bg-emerald-100 text-emerald-600' : result.valid && result.status === 'pending' ? 'bg-orange-100 text-orange-600' : 'bg-rose-100 text-rose-600'}`}>
+                {result.valid && result.status === 'verified' ? <CheckCircle size={20} /> : result.valid && result.status === 'pending' ? <Clock size={20}/> : <X size={20} />}
+              </div>
               <div>
-                <h4 className="font-bold text-lg">{result.valid ? 'Document Verified & Authentic' : 'Document Not Found / Invalid'}</h4>
-                {result.valid && (<div className="text-sm mt-2 space-y-1 opacity-90 font-medium"><p>Type: <span className="font-normal">{result.type}</span></p><p>Owner: <span className="font-normal">{result.owner}</span></p><p>Issued: <span className="font-normal">{result.date}</span></p></div>)}
+                <h4 className="font-bold text-lg">
+                  {result.valid ? (result.status === 'verified' ? 'Document Verified & Authentic' : result.status === 'pending' ? 'Document Pending Verification' : 'Document Rejected') : 'Document Not Found / Invalid'}
+                </h4>
+
+                {result.valid && (
+                  <div className="text-sm mt-2 space-y-1 opacity-90 font-medium">
+                    <p>Status: <span className="font-normal capitalize">{result.status}</span></p>
+                    <p>Type: <span className="font-normal">{result.type}</span></p>
+                    <p>Owner: <span className="font-normal">{result.owner}</span></p>
+                    <p>Issued: <span className="font-normal">{result.date}</span></p>
+                    {result.blockchainId && <p>Chain ID: <span className="font-normal">{result.blockchainId}</span></p>}
+                    {result.txHash && <p>Tx: <a className="underline" href={`https://etherscan.io/tx/${result.txHash}`} target="_blank" rel="noreferrer">{result.txHash}</a></p>}
+                  </div>
+                )}
               </div>
             </div>
           </div>

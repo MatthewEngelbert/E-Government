@@ -355,6 +355,32 @@ app.get('/api/documents/:id/download', authenticate, async (req, res) => {
     res.json(activities);
   });
 
+  // Public verification endpoint by document hash
+  app.get('/api/verify/:hash', async (req, res) => {
+    try {
+      const rawHash = (req.params.hash || '').trim();
+      const hash = rawHash.startsWith('0x') ? rawHash : '0x' + rawHash;
+
+      const doc = await Document.findOne({ hash });
+      if (!doc) {
+        return res.json({ valid: false });
+      }
+
+      res.json({
+        valid: true,
+        type: doc.type,
+        owner: doc.ownerName,
+        date: doc.createdAt ? doc.createdAt.toISOString().split('T')[0] : null,
+        status: doc.status,
+        blockchainId: doc.blockchainId || null,
+        txHash: doc.txHash || null
+      });
+    } catch (err) {
+      console.error('VERIFY API ERROR:', err);
+      res.status(500).json({ valid: false, error: err.message });
+    }
+  });
+
   const authenticatePreview = (req, res, next) => {
     const token =
       req.query.token ||
