@@ -271,10 +271,16 @@ app.get('/api/documents/:id/download', authenticate, async (req, res) => {
         return res.status(400).json({ message: 'File is required' });
       }
 
-      const hash = '0x' + crypto
-        .createHash('sha256')
-        .update(title + req.user.id + Date.now())
-        .digest('hex');
+      // Prefer blockchain transaction hash if provided by client, otherwise generate a secure fallback
+      let hash;
+      if (txHash) {
+        hash = txHash.startsWith('0x') ? txHash : '0x' + txHash;
+      } else {
+        hash = '0x' + crypto
+          .createHash('sha256')
+          .update(title + req.user.id + Date.now())
+          .digest('hex');
+      }
 
       const newDoc = await Document.create({
         title,
@@ -326,7 +332,11 @@ app.get('/api/documents/:id/download', authenticate, async (req, res) => {
 
           if (chainId) {
             newDoc.blockchainId = Number(chainId);
-            newDoc.txHash = receipt.transactionHash || tx.hash;
+            const realTxHash = receipt.transactionHash || tx.hash;
+            newDoc.txHash = realTxHash;
+            // When server performed the on-chain upload, use the on-chain tx hash as the canonical document hash
+            newDoc.hash = realTxHash ? (realTxHash.startsWith('0x') ? realTxHash : '0x' + realTxHash) : newDoc.hash;
+            newDoc.blockchainDate = dateStr;
             await newDoc.save();
           }
         } catch (err) {
@@ -492,4 +502,14 @@ app.patch('/api/documents/:id/verify', authenticatePreview, async (req, res) => 
 });
 
 // --- JALANKAN SERVER ---
-app.listen(PORT, () => console.log(`🚀 Server berjalan di http://localhost:${PORT}`));
+const server = app.listen(PORT, () => console.log(`🚀 Server berjalan di http://localhost:${PORT}`));
+
+// Handle listen errors gracefully (e.g., port already in use)
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} sudah dipakai. Tutup proses lain atau ubah PORT.`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', err);
+  }
+});
