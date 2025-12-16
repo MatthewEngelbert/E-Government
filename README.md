@@ -27,3 +27,4 @@ npm run dev
 Miscellanous Compiling Smart Contract
 
 npx hardhat run scripts/deploy.js --network localhost
+.
