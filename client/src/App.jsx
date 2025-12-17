@@ -177,9 +177,9 @@ const MyDocumentsView = ({ documents, onUpload, loading }) => {
             <p className="text-xs text-slate-500 mb-6">Date: {doc.date}</p>
             <button
               onClick={() => setPreviewDoc(doc)}
-              className="w-full py-2 bg-slate-50 text-slate-600 font-bold text-sm rounded-xl hover:bg-indigo-600 hover:text-white transition"
+              className="w-full py-2 bg-slate-50 text-slate-600 font-bold text-sm rounded-xl"
              >Preview Document</button>
-            <button onClick={() => handleDownload(doc.id)} className="w-full py-2 bg-slate-50 text-slate-600 font-bold text-sm rounded-xl group-hover:bg-blue-600 group-hover:text-white transition">View Details</button>
+            <button onClick={() => handleDownload(doc.id)} className="w-full py-2 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm rounded-xl bg-blue-600 text-white transition">View Details</button>
           </div>
           
         ))}
@@ -955,7 +955,7 @@ export default function App() {
                 <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Full Name</label>
                     <input className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
-                           value={authForm.name} onChange={e => setAuthForm({...authForm, name: e.target.value})} placeholder="John Doe"/>
+                           value={authForm.name} onChange={e => setAuthForm({...authForm, name: e.target.value})} placeholder="Name"/>
                 </div>
             )}
             <div>

@@ -25,7 +25,6 @@ app.use(cors());
 app.use(express.json());
 
 // --- KONEKSI DATABASE ---
-// Kita tambahkan opsi agar koneksi lebih stabil
 mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ DATABASE TERHUBUNG: MongoDB Siap!'))
   .catch(err => {
@@ -260,7 +259,7 @@ app.get('/api/documents/:id/download', authenticate, async (req, res) => {
 
       originalFileName = info.filename;
       const uploadStream = gridFSBucket.openUploadStream(info.filename, {
-        contentType: info.mimeType // 🔥 INI KUNCI
+        contentType: info.mimeType 
       });
       fileId = uploadStream.id;
       file.pipe(uploadStream);

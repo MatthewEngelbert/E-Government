@@ -9,7 +9,7 @@ contract DigitalDocumentRegistry {
         uint256 id;
         address owner;
         string title;
-        string fileHash; // FINAL IPFS CID disimpan di sini
+        string fileHash;
         string date;
         Status status;
     }
